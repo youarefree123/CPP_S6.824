@@ -1,6 +1,6 @@
-
 #include "wc.h"
-// #include <iostream> // FIXME
+#include <string>
+
 /**
 
 filename: 文件名：统计单词中并不会用到
@@ -27,4 +27,14 @@ std::vector<KeyValue> mapTask( std::string_view filename, std::string_view conte
     }
 
     return ret;
+}
+
+/**
+
+key : 单词
+value：由1组成的字符串，长度就代表单词出现次数
+
+*/
+std::string reduceTask( std::string_view key, std::string_view value ) {
+    return std::to_string( value.size() );
 }

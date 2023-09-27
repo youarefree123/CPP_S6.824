@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 
 enum TaskType {
@@ -18,4 +19,4 @@ struct Response {
     
 };
 
-Response allocateTask();
+inline Response allocateTask();

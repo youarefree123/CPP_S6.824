@@ -153,7 +153,7 @@ async_simple::coro::Lazy<void> doReduce( ReduceFunction Reduce, const Response& 
 
     // 执行reduce
     size_t p = 0, q = 1, n = intermediate.size();
-    std::string result;
+    
     while( q <= n ) {
         while( q < n && intermediate[q-1].key == intermediate[q].key ) { ++q; }
         std::string values;

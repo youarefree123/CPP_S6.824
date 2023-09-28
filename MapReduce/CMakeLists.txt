@@ -15,6 +15,12 @@ add_library(
         ${SRC_DIR_LIST}									
 ) 
 
+add_executable( master master.cpp rpc_service.cpp )
+# target_link_libraries( master pthread )
+
+add_executable( worker worker.cpp  rpc_service.cpp )
+# target_link_libraries( worker pthread )
+
 # target_include_directories (
 #         mrpc PUBLIC 
 #   ${3rd_PATH}/spdlog/include

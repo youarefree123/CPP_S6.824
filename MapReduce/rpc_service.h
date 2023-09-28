@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 enum TaskType {
     MAP = 0,
@@ -19,4 +20,22 @@ struct Response {
     
 };
 
-inline Response allocateTask();
+// 本质就是一个FSM, 管理各种状态
+class MasterService {
+public:
+    MasterService( int _num_reeduce = 7 ) 
+      : num_reduce( _num_reeduce ) {}
+    
+    void init( int argc, const char* argv[] ); // 非RPC函数
+    Response allocateTask(); // 每次给worker分配任务
+
+private:
+    int num_map; // map的数量
+    // int assigned_map = 0; // 已分配的map id 
+    int cnt_map = 0; // 已完成的map数量
+    int num_reduce; // reduce 的数量
+    // int assigned_reduce; // 已分配的 reduce id 
+    int cnt_reduce = 0; // 已完成的reduce数量
+    std::vector<const char*> file_list; // 需要处理的文件集合
+    
+};

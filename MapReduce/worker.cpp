@@ -17,14 +17,15 @@
 #include <ylt/easylog.hpp>
 #include <ylt/easylog/record.hpp>
 #include <async_simple/coro/Lazy.h>
+#include <async_simple/coro/SpinLock.h>
 #include <async_simple/coro/SyncAwait.h>
 #include <ylt/coro_rpc/coro_rpc_client.hpp>
 
 // dlsym 返回void*， 要强制转换成原来的函数指针类型
 using MapFunction = std::vector<KeyValue> (*)(std::string_view,
                                               std::string_view);
-using  ReduceFunction = std::string (*)( std::string_view, std::string_view );
-
+using ReduceFunction = std::string (*)( std::string_view, std::string_view );
+using async_simple::coro::syncAwait;
 
 // 加载Map 和 Reduce
 std::pair<MapFunction, ReduceFunction> loadPlugin( const char* so_path ) {
@@ -71,6 +72,7 @@ void loadFile( std::string& content, const char* filename ) {
     file_input.close();
     content = tmp.str();
     ELOG_INFO << std::string{filename} << ": content 加载完成 ";
+    
 
 }
 
@@ -84,13 +86,15 @@ int ihash(std::string_view str, int num_reduce ){
 }
 
 
-async_simple::coro::Lazy<void> doMap( MapFunction Map, const Response& response ) {
+void doMap( MapFunction Map, const Response& response ) {
+
     std::string content;
     loadFile(content, response.filename.data() );
     std::vector<KeyValue> intermediate = Map( response.filename, content );
-    
-    // 每个 do_map 产生 num_reduce 个 临时文件 
-    std::vector< std::ofstream > file_streams( response.file_id );
+    // 每个 do_map 产生 num_reduce 个 临时文件 , 首先先清空原来的那些文件
+
+#if 1
+    std::vector< std::ofstream > file_streams( response.num_reduce ); // 开辟 num_reduce 个文件bucket
     for( int i = 0; i < response.num_reduce; i++ ) {
         std::string filename = "mr-"+std::to_string(i)+"-"+std::to_string(response.file_id);
         file_streams[i].open( filename,std::ofstream::trunc  ); // 每次都清空文件后再写
@@ -98,8 +102,9 @@ async_simple::coro::Lazy<void> doMap( MapFunction Map, const Response& response 
             ELOG_CRITICAL << filename << " was not created.";
             exit(1);
         }
-        ELOG_INFO << filename <<" was be created.";
+        // ELOG_DEBUG << filename <<" was be created.";
     }
+
 
     // 将所有的kv对都存入对应的文件中, 然后关闭
     for( auto& it : intermediate ) {
@@ -110,11 +115,12 @@ async_simple::coro::Lazy<void> doMap( MapFunction Map, const Response& response 
         it.close();
     }
 
-    co_return;
+#endif
+    return;
 
 }
 
-async_simple::coro::Lazy<void> doReduce( ReduceFunction Reduce, const Response& response ) {
+void doReduce( ReduceFunction Reduce, const Response& response ) {
     
     // shuffle 操作，将所有kv都存入临时文件中
     std::vector<KeyValue> intermediate;
@@ -131,9 +137,12 @@ async_simple::coro::Lazy<void> doReduce( ReduceFunction Reduce, const Response& 
         while (std::getline(tmp_file, line)) {
             int n = line.size();
             int pos = line.find(':');
-            std::string_view key( line.begin(), line.begin()+pos );
-            std::string_view value( line.begin()+pos+1, line.end() );
-            intermediate.emplace_back( key,value );
+            std::string key( line.begin(), line.begin()+pos );
+            std::string value( line.begin()+pos+1, line.end() );
+
+            // ELOG_DEBUG<<"key = "<<key.data() <<" __ value = " << value.data();
+            
+            intermediate.emplace_back( key, value );
         }
         tmp_file.close(); // 用完及时关闭文件
     }
@@ -169,34 +178,37 @@ async_simple::coro::Lazy<void> doReduce( ReduceFunction Reduce, const Response& 
 
     outfile.close();
 
-    co_return;
+    return;
 }
 
-
-async_simple::coro::Lazy<void> worker( MapFunction Map, ReduceFunction Reduce ) {
+void worker( MapFunction Map, ReduceFunction Reduce ) {
 
     coro_rpc::coro_rpc_client client;
-    co_await client.connect( "", "8000" );
+    syncAwait( client.connect( "localhost", "8000" ) ); 
 
     // 循环等待任务，并执行
     while( true ) {
-
-        auto response = co_await client.call<allocateTask>();
+        auto response = syncAwait( client.call<&MasterService::allocateTask>() ) ;
         if( !response.has_value() ) {
-            ELOG_ERROR << "allocateTask no response";
+            // ELOG_CRITICAL << "allocateTask no response";
+            // exit(1);
+            ELOG_ERROR <<  "allocateTask no response";
+            continue;
         }
         else {
+            ELOG_DEBUG << "Got Response : " << response.value().task_type << " : "<< response.value().filename;
             switch ( response.value().task_type ) {
                 case MAP:
-                    co_await doMap( Map, response.value() ); break;
+                    doMap( Map, response.value() ); 
+                    break;
                 case REDUCE:
-                    co_await doReduce( Reduce, response.value() ); break;
+                    doReduce( Reduce, response.value() ); break;
                 case WAIT:
                     // 等待1s
-                    co_await async_simple::coro::sleep( std::chrono::duration<int, std::ratio<1, 1>>(1) );
+                    syncAwait( async_simple::coro::sleep( std::chrono::duration<int, std::ratio<1, 1>>(1) ) ) ;
                     break;
                 case DONE:
-                    co_return;
+                    return;
                 default:
                     ELOG_CRITICAL << " error type" << response.value().task_type;
                     exit(1);
@@ -217,6 +229,6 @@ int main ( int argc, const char* argv[] ) {
     }
 
     auto [ Map, Reduce ] = loadPlugin( argv[1] ); // 函数导入
-    async_simple::coro::syncAwait( worker( Map, Reduce ) ) ;
+    worker(Map, Reduce);
 
 }

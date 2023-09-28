@@ -1,22 +1,36 @@
 #include "MapReduce/rpc_service.h"
+#include <cassert>
+#include <system_error>
 #include <vector>
 #include <ylt/coro_rpc/coro_rpc_server.hpp>
-
-// 本质就是一个FSM, 管理各种状态
-struct Master {
-    int num_map; // map的数量
-    int cnt_map; // 已完成的map数量
-    int num_reduce; // reduce 的数量
-    int cnt_reduce; // 已完成的reduce数量
-    std::vector<const char*> file_list; // 需要处理的文件集合
-}
+#include <ylt/easylog.hpp>
 
 
 
-int main() {
+
+
+int main(int argc, const char* argv[] ) {
+
+    // FIXME: 动态加载文件位置 ./ mrsequentail lib/libwc.so pg*.txt
+    if ( argc < 2 ) {
+        ELOG_CRITICAL << " bin/master  MapReduce/pg*.txt  ";
+        exit(1);
+    }
+
+    MasterService master{ 7 };
+    master.init(argc, argv );
+
+    /****************************/
+    // ELOG_DEBUG << "num_map :"<< master.num_map;
+    // ELOG_DEBUG << "num_reduce :"<< master.num_reduce;
+    // ELOG_DEBUG << "cnt_map :" << master.cnt_map; 
+    // ELOG_DEBUG << "cnt_reduce :" << master.cnt_reduce; 
+    /****************************/
 
     coro_rpc::coro_rpc_server server( 12, 8000 );
-    server.register_handler<allocateTask>( );
-    server.start();
+    server.register_handler<&MasterService::allocateTask>( &master );
+    auto ret =  server.start();
+    assert( ret == std::errc{} );
+    return 0;
 
 }

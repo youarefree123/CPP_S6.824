@@ -4,3 +4,7 @@
 /lib 
 /.cache
 mr*
+log
+vgcore*
+correct-wc
+core*

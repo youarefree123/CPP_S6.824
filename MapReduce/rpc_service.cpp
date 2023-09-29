@@ -4,6 +4,7 @@
 #include <async_simple/coro/SyncAwait.h>
 #include <ylt/easylog.hpp>
 
+
 using async_simple::coro::syncAwait;
 
 // 初始化要加载的文件列表, num_map 大小就是文件数量？！
@@ -43,11 +44,12 @@ void MasterService::getDoneResponse( Response& rsp ) {
 }
 
 // 每次给worker分配任务, 先假设一定可以做好
-Response MasterService::allocateTask(){
+async_simple::coro::Lazy<Response> MasterService::allocateTask(){
     Response rsp;
 
     // 如果map没做完，去做map, 如果 reduce 没做完，就去做reduce, 否则做down
-    syncAwait( lock.coLock() ); // 加锁 
+    // syncAwait( lock.coLock() ); // 加锁 
+    co_await lock.coLock();
 
     if( assigned_map < num_map ) {
         getMapResponse( rsp ); // map还没分发完, 分发map
@@ -67,18 +69,21 @@ Response MasterService::allocateTask(){
 
     lock.unlock(); // 解锁
     
-    return rsp;
+    // return rsp;
+    co_return rsp;
 } 
 
 
-void MasterService::mapCompleted() {
-    syncAwait( lock.coLock() );
+async_simple::coro::Lazy<void> MasterService::mapCompleted() {
+    // syncAwait( lock.coLock() );
+    co_await lock.coLock();
     ++cnt_map;
     lock.unlock();
 }
 
-void MasterService::reduceCompleted() {
-    syncAwait( lock.coLock() );
+async_simple::coro::Lazy<void> MasterService::reduceCompleted() {
+    // syncAwait( lock.coLock() );
+    co_await lock.coLock();
     ++cnt_reduce;
     lock.unlock();
 }

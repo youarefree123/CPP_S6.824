@@ -4,9 +4,15 @@ bash build.sh
 if [ -f "wc-correct" ]; 
 then echo "wc-correct 已存在 "
 else
+    # start=$(date +%s)
+    
     bin/mrsequential lib/libwc.so  MapReduce/pg*.txt || exit 1
     sort mr-wc > wc-correct
     rm -rf mr-wc
+
+    # end=$(date +%s)
+    # dif=$[$end - $start ]
+    # echo " mrsequential :  $dif s" 
 fi
 
 failed_any=0
@@ -14,6 +20,9 @@ failed_any=0
 echo '*****' Starting wc test
 
 # 开启master
+
+# start=$(date +%s)
+
 timeout -k 2s 180s bin/master  MapReduce/pg*.txt &
 sleep 1
 
@@ -23,6 +32,11 @@ timeout -k 2s 180s bin/worker lib/libwc.so &
 timeout -k 2s 180s bin/worker lib/libwc.so &
 
 wait
+
+# end=$(date +%s)
+# dif=$[ $end - $start ]
+# echo " MapReduce :  $dif s" 
+
 
 sort mr-out-* | grep . > mr-wc-all
 

@@ -3,6 +3,7 @@
 #include <async_simple/coro/SpinLock.h>
 #include <string>
 #include <vector>
+#include <ylt/coro_rpc/coro_rpc_server.hpp>
 
 enum TaskType {
     MAP = 0,
@@ -29,9 +30,9 @@ public:
       : num_reduce( _num_reeduce ) {}
     
     void init( int argc, const char* argv[] ); // 非RPC函数
-    Response allocateTask(); // 每次给worker分配任务
-    void mapCompleted(); // map 完成的通知
-    void reduceCompleted(); // reduce 完成的通知
+    async_simple::coro::Lazy<Response> allocateTask(); // 每次给worker分配任务
+    async_simple::coro::Lazy<void> mapCompleted(); // map 完成的通知
+    async_simple::coro::Lazy<void> reduceCompleted(); // reduce 完成的通知
 
 public:
     int num_map; // map的数量
@@ -49,3 +50,12 @@ public:
     void getDoneResponse( Response& );  // 封装 操作wait的 报文
     
 };
+
+struct KeyValue {
+    std::string key, value;
+};
+
+// dlsym 返回void*， 要强制转换成原来的函数指针类型
+using MapFunction = std::vector<KeyValue> (*)(std::string_view,
+                                              std::string_view);
+using ReduceFunction = std::string (*)( std::string_view, const std::vector<std::string>& );

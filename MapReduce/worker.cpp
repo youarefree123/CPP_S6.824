@@ -1,4 +1,3 @@
-#include "MapReduce/wc.h"
 #include "MapReduce/rpc_service.h"
 #include <algorithm>
 #include <async_simple/coro/FutureAwaiter.h>
@@ -21,10 +20,7 @@
 #include <async_simple/coro/SyncAwait.h>
 #include <ylt/coro_rpc/coro_rpc_client.hpp>
 
-// dlsym 返回void*， 要强制转换成原来的函数指针类型
-using MapFunction = std::vector<KeyValue> (*)(std::string_view,
-                                              std::string_view);
-using ReduceFunction = std::string (*)( std::string_view, const std::vector<std::string>& );
+
 using async_simple::coro::syncAwait;
 
 // 加载Map 和 Reduce

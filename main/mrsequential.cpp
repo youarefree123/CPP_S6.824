@@ -2,8 +2,6 @@
     单机版 MapReduce， 先Map， 将结果存入临时队列， 然后再统计
 */
 
-
-
 #include "MapReduce/wc.h"
 #include <algorithm>
 #include <cstdlib>
@@ -21,10 +19,10 @@
 #include <ylt/easylog/record.hpp>
 
 
-// dlsym 返回void*， 要强制转换成原来的函数指针类型
+// // dlsym 返回void*， 要强制转换成原来的函数指针类型
 using MapFunction = std::vector<KeyValue> (*)(std::string_view,
                                               std::string_view);
-using  ReduceFunction = std::string (*)( std::string_view, std::string_view );
+using ReduceFunction = std::string (*)( std::string_view, const std::vector<std::string>& );
 
 
 
@@ -167,9 +165,9 @@ int main( int argc, const char** argv ) {
     std::string result;
     while( q <= n ) {
         while( q < n && intermediate[q-1].key == intermediate[q].key ) { ++q; }
-        std::string values;
+        std::vector<std::string> values;
         while( p < q ) { 
-            values.append( intermediate[p].value ); // 为了统一reduce接口, 就不直接生成结果文件了
+            values.push_back( intermediate[p].value ); // 为了统一reduce接口, 就不直接生成结果文件了
             ++p;
         }
         q = p+1;

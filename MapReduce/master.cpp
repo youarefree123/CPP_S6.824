@@ -30,6 +30,9 @@ int main(int argc, const char* argv[] ) {
         exit(1);
     }
 
+    // easylog::set_min_severity(easylog::Severity::INFO);
+    easylog::set_min_severity(easylog::Severity::ERROR);
+
     MasterService master{ 7 };
     master.init(argc, argv );
 

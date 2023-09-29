@@ -4,7 +4,7 @@
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
 
 # 只遍历当前目录
-file(GLOB  SRC_DIR_LIST "wc.cpp")
+# file(GLOB  SRC_DIR_LIST "wc.cpp")
 message("src---${PROJECT_SOURCE_DIR}")
 
 
@@ -12,13 +12,20 @@ add_library(
         wc 
         # STATIC
         SHARED
-        ${SRC_DIR_LIST}									
+        "wc.cpp"								
+) 
+
+add_library(
+        mtiming 
+        # STATIC
+        SHARED
+        "mtiming.cpp"								
 ) 
 
 add_executable( master master.cpp rpc_service.cpp )
 # target_link_libraries( master pthread )
 
-add_executable( worker worker.cpp  rpc_service.cpp )
+add_executable( worker worker.cpp  )
 # target_link_libraries( worker pthread )
 
 # target_include_directories (

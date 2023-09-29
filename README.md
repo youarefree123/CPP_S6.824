@@ -14,3 +14,9 @@ bash build.sh
 ```shell
 bin/mrsequential lib/libwc.so  MapReduce/pg*.txt 
 ```
+
+##  其他 
+```shell 
+# 查看 so中的函数名
+objdump -T lib/libmtiming.so | grep mapTask
+```

@@ -154,13 +154,13 @@ int main( int argc, const char** argv ) {
     ELOG_INFO << " 中间文件排序完成: ";
 
     // 打开一个文件，写结果
-    std::ofstream outfile("mr-wc-all",std::ofstream::trunc); // 每次都清空文件后再写
+    std::ofstream outfile("mr-wc",std::ofstream::trunc); // 每次都清空文件后再写
     if( !outfile.is_open() ) {
-        ELOG_CRITICAL<<"mr-out-0 文件创建失败 ";
+        ELOG_CRITICAL<<"mr-wc 文件创建失败 ";
         exit(1);
     }
 
-    ELOG_INFO<<"mr-out-0 文件创建成功 ";
+    ELOG_INFO<<"mr-wc 文件创建成功 ";
 
     // 执行reduce
     size_t p = 0, q = 1, n = intermediate.size();

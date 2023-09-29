@@ -5,7 +5,20 @@
 #include <ylt/coro_rpc/coro_rpc_server.hpp>
 #include <ylt/easylog.hpp>
 
-
+// 异步定时任务，监听 任务是否完成，完成后让master退出
+async_simple::coro::Lazy<void> waitFunc( int timestamp, const MasterService& master ) {
+    while( true ) {
+        co_await coro_io::sleep_for( std::chrono::duration< int, std::ratio<1,1> >(timestamp) );
+        
+        if( master.cnt_reduce == master.num_reduce ) {
+            // 任务已经完成，master需要退出
+            ELOG_INFO << " MapReduce Completed! ";
+            exit(0);
+        }
+    }
+    
+    // 如果此时 ass
+}
 
 
 
@@ -28,9 +41,18 @@ int main(int argc, const char* argv[] ) {
     /****************************/
 
     coro_rpc::coro_rpc_server server( 12, 8000 );
+
     server.register_handler<&MasterService::allocateTask>( &master );
-    auto ret =  server.start();
+    server.register_handler<&MasterService::mapCompleted>( &master );
+    server.register_handler<&MasterService::reduceCompleted>( &master );
+    
+
+    waitFunc(1,master).start( [](auto&&){} ); // 设置定时任务
+
+    auto ret = server.start();
     assert( ret == std::errc{} );
+
+    sleep( 10000000 );
     return 0;
 
 }

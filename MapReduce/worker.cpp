@@ -93,7 +93,6 @@ void doMap( MapFunction Map, const Response& response ) {
     std::vector<KeyValue> intermediate = Map( response.filename, content );
     // 每个 do_map 产生 num_reduce 个 临时文件 , 首先先清空原来的那些文件
 
-#if 1
     std::vector< std::ofstream > file_streams( response.num_reduce ); // 开辟 num_reduce 个文件bucket
     for( int i = 0; i < response.num_reduce; i++ ) {
         std::string filename = "mr-"+std::to_string(i)+"-"+std::to_string(response.file_id);
@@ -105,7 +104,6 @@ void doMap( MapFunction Map, const Response& response ) {
         // ELOG_DEBUG << filename <<" was be created.";
     }
 
-
     // 将所有的kv对都存入对应的文件中, 然后关闭
     for( auto& it : intermediate ) {
         file_streams[ ihash(it.key, response.num_reduce) ] << it.key <<":"<<it.value<<"\n";
@@ -115,7 +113,6 @@ void doMap( MapFunction Map, const Response& response ) {
         it.close();
     }
 
-#endif
     return;
 
 }
@@ -190,22 +187,27 @@ void worker( MapFunction Map, ReduceFunction Reduce ) {
     while( true ) {
         auto response = syncAwait( client.call<&MasterService::allocateTask>() ) ;
         if( !response.has_value() ) {
-            // ELOG_CRITICAL << "allocateTask no response";
-            // exit(1);
-            ELOG_ERROR <<  "allocateTask no response";
+            // ELOG_CRITICAL << " master done ";
+            ELOG_INFO << " master done ";
+            exit(0);
+            // ELOG_ERROR <<  "allocateTask no response";
             continue;
         }
         else {
-            ELOG_DEBUG << "Got Response : " << response.value().task_type << " : "<< response.value().filename;
+            // ELOG_DEBUG << "Got Response : " << response.value().task_type << " : "<< response.value().filename;
             switch ( response.value().task_type ) {
                 case MAP:
                     doMap( Map, response.value() ); 
+                    syncAwait( client.call<&MasterService::mapCompleted>() );
                     break;
                 case REDUCE:
-                    doReduce( Reduce, response.value() ); break;
+                    doReduce( Reduce, response.value() ); 
+                    syncAwait( client.call<&MasterService::reduceCompleted>() );
+                    break;
                 case WAIT:
                     // 等待1s
                     syncAwait( async_simple::coro::sleep( std::chrono::duration<int, std::ratio<1, 1>>(1) ) ) ;
+                    ELOG_DEBUG << "wait 1s";
                     break;
                 case DONE:
                     return;

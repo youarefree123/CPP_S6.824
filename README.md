@@ -12,5 +12,7 @@ bash build.sh
 
 ## MapReduce
 ```shell
-bin/mrsequential lib/libwc.so  MapReduce/pg*.txt 
+# 注意： 第一次测试时，因为没有正确的结果文件，会调用单机版代码跑一次，可能会需要等待一段时间
+bash test-mr.sh
+
 ```

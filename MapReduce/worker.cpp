@@ -227,8 +227,8 @@ int main ( int argc, const char* argv[] ) {
         ELOG_CRITICAL << " bin/worker lib/libxx.so ";
         exit(1);
     }
-    // easylog::set_min_severity(easylog::Severity::DEBUG);
-     easylog::set_min_severity(easylog::Severity::ERROR);
+    easylog::set_min_severity(easylog::Severity::DEBUG);
+    //  easylog::set_min_severity(easylog::Severity::ERROR);
 
     auto [ Map, Reduce ] = loadPlugin( argv[1] ); // 函数导入
 

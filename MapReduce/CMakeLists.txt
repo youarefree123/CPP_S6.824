@@ -29,6 +29,20 @@ add_library(
         "rtiming.cpp"								
 ) 
 
+add_library(
+        nocrash 
+        # STATIC
+        SHARED
+        "nocrash.cpp"								
+) 
+
+add_library(
+        crash 
+        # STATIC
+        SHARED
+        "crash.cpp"								
+) 
+
 add_executable( master master.cpp rpc_service.cpp )
 # target_link_libraries( master pthread )
 

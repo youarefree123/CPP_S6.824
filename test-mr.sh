@@ -81,8 +81,7 @@ else
   failed_any=1
 fi
 
-wait ; wait
-
+wait ; wait;
 
 
 

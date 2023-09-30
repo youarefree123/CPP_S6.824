@@ -23,7 +23,6 @@ std::vector<KeyValue> mapTask( std::string_view filename, std::string_view conte
     while( q <= len ) {
         while( q < len && check( contents[q] ) ) { ++q; }
         if( p < q ) {
-            // ret.push_back( KeyValue{ ( std::string )contents.substr( p, q-p ), "1" } );
             ret.emplace_back( std::string{ contents.substr( p, q-p ) }, "1" );
         }
         p = q+1; q = p;
@@ -32,7 +31,7 @@ std::vector<KeyValue> mapTask( std::string_view filename, std::string_view conte
 
     }
 
-    ELOG_DEBUG << " map 完成 " ; 
+    // ELOG_DEBUG << " map 完成 " ; 
 
     return ret;
 }

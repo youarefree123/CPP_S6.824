@@ -109,6 +109,8 @@ void doMap( MapFunction Map, const Response& response ) {
         it.close();
     }
 
+    // ELOG_DEBUG << response.filename <<" was be maped.";
+
     return;
 
 }
@@ -117,7 +119,7 @@ void doReduce( ReduceFunction Reduce, const Response& response ) {
     
     // shuffle 操作，将所有kv都存入临时文件中
     std::vector<KeyValue> intermediate;
-    for( int i = 0; i < response.num_map; i++ ) {
+    for( int i = 0; i < response.num_file; i++ ) {
         std::string filename = "mr-" + std::to_string( response.file_id ) + "-" + std::to_string(i);
         std::ifstream tmp_file( filename );
         if( !tmp_file.is_open() ) {
@@ -194,16 +196,16 @@ void worker( MapFunction Map, ReduceFunction Reduce ) {
             switch ( response.value().task_type ) {
                 case MAP:
                     doMap( Map, response.value() ); 
-                    syncAwait( client.call<&MasterService::mapCompleted>() );
+                    syncAwait( client.call<&MasterService::mapCompleted>( response.value().file_id ) );
                     break;
                 case REDUCE:
                     doReduce( Reduce, response.value() ); 
-                    syncAwait( client.call<&MasterService::reduceCompleted>() );
+                    syncAwait( client.call<&MasterService::reduceCompleted>( response.value().file_id ) );
                     break;
                 case WAIT:
                     // 等待1s
                     syncAwait( async_simple::coro::sleep( std::chrono::duration<int, std::ratio<1, 1>>(1) ) ) ;
-                    ELOG_DEBUG << "wait 1s";
+                    ELOG_INFO << "wait";
                     break;
                 case DONE:
                     return;
@@ -222,13 +224,16 @@ void worker( MapFunction Map, ReduceFunction Reduce ) {
 int main ( int argc, const char* argv[] ) {
     // FIXME: 动态加载文件位置 ./ mrsequentail lib/libwc.so pg*.txt
     if ( argc < 2 ) {
-        ELOG_CRITICAL << " bin/worker lib/libwc.so ";
+        ELOG_CRITICAL << " bin/worker lib/libxx.so ";
         exit(1);
     }
-    // easylog::set_min_severity(easylog::Severity::INFO);
+    // easylog::set_min_severity(easylog::Severity::DEBUG);
      easylog::set_min_severity(easylog::Severity::ERROR);
 
     auto [ Map, Reduce ] = loadPlugin( argv[1] ); // 函数导入
+
+    ELOG_INFO << " worker ";
+
     worker(Map, Reduce);
 
 }

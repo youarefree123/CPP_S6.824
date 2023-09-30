@@ -1,4 +1,4 @@
-#include "MapReduce/mtiming.h"
+#include "MapReduce/rtiming.h"
 #include <async_simple/coro/Sleep.h>
 #include <async_simple/coro/SyncAwait.h>
 #include <csignal>
@@ -12,8 +12,6 @@
 #include <vector>
 #include <cstring>
 #include <sstream>
-
-
 
 int nparallel(const std::string& phase) {
     // 创建一个文件，以便其他工作进程可以看到我们同时运行
@@ -49,7 +47,9 @@ int nparallel(const std::string& phase) {
     }
     closedir(dir);
 
-    sleep(1);              
+    // async_simple::coro::syncAwait( async_simple::coro::sleep( std::chrono::duration<int, std::ratio<1, 1>>(1) ) ) ;
+    sleep(1);  
+                   
     // 删除创建的文件
     std::remove(myfilename.c_str());
 
@@ -57,43 +57,25 @@ int nparallel(const std::string& phase) {
 }
 
 
-
-std::vector<KeyValue> mapTask( std::string_view filename, std::string_view contents) {
-    std::time_t t = std::time(nullptr);
-    double ts = static_cast<double>(t);
-
-    pid_t pid = getpid();
-
-    int n = nparallel("map");
-
+std::vector<KeyValue> mapTask(std::string_view filename, std::string_view contents) {
     std::vector<KeyValue> kva;
-
-    kva.push_back({ "times-" + std::to_string(pid), std::to_string(ts) });
-    kva.push_back({ "parallel-" + std::to_string(pid), std::to_string(n) });
-
+    kva.push_back(KeyValue{"a", "1"});
+    kva.push_back(KeyValue{"b", "1"});
+    kva.push_back(KeyValue{"c", "1"});
+    kva.push_back(KeyValue{"d", "1"});
+    kva.push_back(KeyValue{"e", "1"});
+    kva.push_back(KeyValue{"f", "1"});
+    kva.push_back(KeyValue{"g", "1"});
+    kva.push_back(KeyValue{"h", "1"});
+    kva.push_back(KeyValue{"i", "1"});
+    kva.push_back(KeyValue{"j", "1"});
     return kva;
 }
 
 std::string reduceTask(std::string_view key, const std::vector<std::string>& values) {
-    //n := nparallel("reduce")
+    int n = nparallel( "reduce" ); // Placeholder for parallel reduce
 
-    // sort values to ensure deterministic output.
-    std::vector<std::string> vv = values;
-    std::sort(vv.begin(), vv.end());
-
-    std::stringstream ss;
-    for (const auto& value : vv) {
-        ss << value << " ";
-    }
-    std::string val = ss.str();
+    std::string val = std::to_string(n);
 
     return val;
 }
-
-
-
-
-// int main () {
-//     int p = nparallel( "Map" );
-//     std::cout<< p << std::endl;
-// }

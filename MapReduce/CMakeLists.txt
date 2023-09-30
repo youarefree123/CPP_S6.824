@@ -22,6 +22,13 @@ add_library(
         "mtiming.cpp"								
 ) 
 
+add_library(
+        rtiming 
+        # STATIC
+        SHARED
+        "rtiming.cpp"								
+) 
+
 add_executable( master master.cpp rpc_service.cpp )
 # target_link_libraries( master pthread )
 

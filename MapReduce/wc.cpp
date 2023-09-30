@@ -43,6 +43,6 @@ key : 单词
 value：由1组成的字符串，长度就代表单词出现次数
 
 */
-std::string reduceTask( std::string_view key, std::string_view value ) {
+std::string reduceTask( std::string_view key, const std::vector<std::string>& value ) {
     return std::to_string( value.size() );
 }

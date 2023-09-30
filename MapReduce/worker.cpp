@@ -1,4 +1,3 @@
-#include "MapReduce/wc.h"
 #include "MapReduce/rpc_service.h"
 #include <algorithm>
 #include <async_simple/coro/FutureAwaiter.h>
@@ -21,10 +20,7 @@
 #include <async_simple/coro/SyncAwait.h>
 #include <ylt/coro_rpc/coro_rpc_client.hpp>
 
-// dlsym 返回void*， 要强制转换成原来的函数指针类型
-using MapFunction = std::vector<KeyValue> (*)(std::string_view,
-                                              std::string_view);
-using ReduceFunction = std::string (*)( std::string_view, std::string_view );
+
 using async_simple::coro::syncAwait;
 
 // 加载Map 和 Reduce
@@ -128,7 +124,7 @@ void doReduce( ReduceFunction Reduce, const Response& response ) {
             ELOG_CRITICAL << filename << " was not open.";
             exit(1);
         }
-        ELOG_INFO << filename <<" was be opened.";
+        ELOG_DEBUG << filename <<" was be opened.";
         
         std::string line;
         while (std::getline(tmp_file, line)) {
@@ -162,9 +158,9 @@ void doReduce( ReduceFunction Reduce, const Response& response ) {
     
     while( q <= n ) {
         while( q < n && intermediate[q-1].key == intermediate[q].key ) { ++q; }
-        std::string values;
+        std::vector<std::string> values;
         while( p < q ) { 
-            values.append( intermediate[p].value ); // 为了统一reduce接口, 就不直接生成结果文件了
+            values.push_back( intermediate[p].value ); // 为了统一reduce接口, 就不直接生成结果文件了
             ++p;
         }
         q = p+1;
@@ -229,6 +225,8 @@ int main ( int argc, const char* argv[] ) {
         ELOG_CRITICAL << " bin/worker lib/libwc.so ";
         exit(1);
     }
+    // easylog::set_min_severity(easylog::Severity::INFO);
+     easylog::set_min_severity(easylog::Severity::ERROR);
 
     auto [ Map, Reduce ] = loadPlugin( argv[1] ); // 函数导入
     worker(Map, Reduce);

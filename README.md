@@ -15,4 +15,11 @@ bash build.sh
 # 注意： 第一次测试时，因为没有正确的结果文件，会调用单机版代码跑一次，可能会需要等待一段时间
 bash test-mr.sh
 
+bin/mrsequential lib/libwc.so  MapReduce/pg*.txt 
+```
+
+##  其他 
+```shell 
+# 查看 so中的函数名
+objdump -T lib/libmtiming.so | grep mapTask
 ```

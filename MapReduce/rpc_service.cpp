@@ -90,7 +90,8 @@ async_simple::coro::Lazy<void> MasterService::waitReduce( int id ) {
 // 每次给worker分配任务, 先假设一定可以做好, 然后假设有的可能会宕机（不宕机的一定完成）
 async_simple::coro::Lazy<Response> MasterService::allocateTask(){
     Response rsp;
-
+    // 做异步化，这里现在是同步模式 
+    // https://github.com/alibaba/yalantinglibs/blob/main/website/docs/zh/coro_rpc/coro_rpc_introduction.md
     // 如果map没做完，去做map, 如果 reduce 没做完，就去做reduce, 否则做down
     // syncAwait( lock.coLock() ); // 加锁保平安
     co_await lock.coLock();

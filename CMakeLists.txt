@@ -30,6 +30,7 @@ include_directories(${PROJECT_SOURCE_DIR})
 
 add_subdirectory(MapReduce)
 add_subdirectory(main)
+add_subdirectory(raft)
 
 # add_subdirectory(./test)
 

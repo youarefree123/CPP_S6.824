@@ -10,7 +10,8 @@ class Persister;
 
 
 constexpr size_t GAP_TIME = 5; // 每次检测状态的时间
-constexpr size_t DURATION_TIME = 100; // 异步超时时间
+constexpr size_t REQ_WAIT_TIME = 30; // 收集reply等待的时间
+constexpr size_t DURATION_TIME = 20; // 异步超时时间
 constexpr size_t ELECTION_BASE_TIME = 150; // 选举超时时间
 constexpr size_t ELECTION_RANGE_TIME = 150; // 选举超时的随机值
 constexpr size_t HEARTBEAT_TIME = 50; // 发送心跳包的间隔时间

@@ -1,3 +1,4 @@
+#include <async_simple/coro/FutureAwaiter.h>
 #include <atomic>
 #include <cassert>
 #include <string>
@@ -101,8 +102,8 @@ void Raft::doElection() {
 
     
     // 并行去对所有server做vote请求，纯异步任务，不等待, 不能将整个选举逻辑放在lambda里，无法获取锁
-    auto vote = [&]( int id ) -> Lazy<void> {
-        RequestVoteReply reply{};
+    auto vote = [&]( int id, RequestVoteReply& reply ) -> Lazy<void> {
+        // RequestVoteReply reply{};
         // auto tmp_me = me; // for debug
         // ELOG_DEBUG<<id<<"被访问 raft 当前状态:me = "<<me<<"; state = "<<state<<" currentTerm = "<<currentTerm<<" votedFor = "<<votedFor;
         ELOG_DEBUG << me << " server 发送args, 候选人id:"<<args.candidateId<<" term:"<<args.term;
@@ -113,47 +114,91 @@ void Raft::doElection() {
             ELOG_DEBUG << me << " server 未收到 id:" << id <<" 的回复";
             co_return; 
         }
-        // 访问临界区，需要加锁
         ELOG_DEBUG << me << " server 收到reply, votefgranted:term = "<<reply.voteGranted<<" : "<< reply.term;
 
-        while( !lock.tryLock() ) {
-            ELOG_DEBUG<< me << " 没有拿到锁 ";
-        }
+
+        // 这里及其下面的逻辑，需要保证离开doElection也能执行，不然在doElection中是获取不了锁的
+        // while( !lock.tryLock() ) {
+        //     ELOG_DEBUG<< me << " 没有拿到锁 ";
+        // }
         // co_await lock.coLock(); // 这里需要加锁吗？
+        // ELOG_DEBUG<< me << " 拿到锁 ";
         
-        if( currentTerm != reply.term || state != Leader ) {
-            // 选举超时，重新选举，直接返回
-            goto VOTE_RET;
+        // if( currentTerm != reply.term || state != Leader ) {
+        //     // 选举超时，重新选举，直接返回
+        //     goto VOTE_RET;
+        // }
+        // // term都没有其他server大，不是合格的候选者，身份转变为follower
+        // if( reply.term > currentTerm ) {
+        //     currentTerm = reply.term;
+        //     votedFor = -1;
+        //     // persist(); // FIXME
+        //     turnTo( Follower );
+        //     goto VOTE_RET;
+        // }
+
+        // if( reply.voteGranted ) {
+        //     voted_count++;
+
+        //     if( voted_count > peers.size() / 2 && state == Candidate ) {
+        //         ELOG_DEBUG<< me<<" server 成为leader";
+        //         turnTo( Leader );
+        //     }
+        // }
+
+// VOTE_RET:
+//         lock.unlock();
+//         co_return;
+    };
+
+    ELOG_DEBUG << me << " server 并行向所有节点发送选举请求";
+    std::vector<RequestVoteReply> replys( peers.size() );
+    for( int i = 0; i < peers.size(); i++ ) {
+        if( i == me ) continue; // 自己不用
+        // 异步去做投票请求，但是不会等着
+        vote(i, replys[i] ).start( [&](auto&&){} );
+    }
+
+    // 等一会儿 replys
+    // syncAwait( co_sleep( REQ_WAIT_TIME ) );
+
+    ELOG_DEBUG<<me<<" server 得票情况:";
+    for( auto& reply : replys ) {
+        ELOG_DEBUG << reply.term<<" : "<<reply.voteGranted;
+    }
+
+
+    for( auto& reply : replys ) {
+        if( currentTerm != reply.term || state != Candidate ) {
+            // 选举超时，重新选举，无效回复
+            ELOG_DEBUG << "无效reply";
+            continue;
         }
         // term都没有其他server大，不是合格的候选者，身份转变为follower
         if( reply.term > currentTerm ) {
+            ELOG_DEBUG << "reply的term更大，server回到follower状态";
             currentTerm = reply.term;
             votedFor = -1;
             // persist(); // FIXME
             turnTo( Follower );
-            goto VOTE_RET;
+            continue;
         }
 
         if( reply.voteGranted ) {
             voted_count++;
-
+            ELOG_DEBUG<< me<<" server 获得一票, 当前票数:"<< voted_count;
             if( voted_count > peers.size() / 2 && state == Candidate ) {
                 ELOG_DEBUG<< me<<" server 成为leader";
-                turnTo( Leader );
+                turnTo( Leader ); 
+                // 成为leader， 直接返回
+                break;
             }
         }
-
-VOTE_RET:
-        lock.unlock();
-        co_return;
-    };
-
-    ELOG_DEBUG << me << " server 并行向所有节点发送选举请求";
-    for( int i = 0; i < peers.size(); i++ ) {
-        if( i == me ) continue; // 自己不用
-        // 异步去做投票请求，但是不会等着
-        vote(i).start( [&](auto&&){} );
     }
+    
+
+
+    // ELOG_DEBUG << me <<" server 离开doElection";
 
 }
 
@@ -246,6 +291,10 @@ Lazy<void> Raft::ticker() {
 
 
 Lazy<RequestVoteReply> Raft::RequestVote( RequestVoteArgs args ) {
+
+    // for debug 先睡一段时间
+    co_await co_sleep( GAP_TIME*10 );
+
     RequestVoteReply reply{};
     co_await lock.coLock();
     // ELOG_DEBUG << me << " server 收到args, 参数为:"<<args.candidateId<<" "<<args.term;

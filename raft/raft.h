@@ -54,8 +54,8 @@ struct RequestVoteArgs {
 // field names must start with capital letters!
 //
 struct RequestVoteReply {
-    size_t term; // 当前的最新term号， for candidate to update itself
-    bool voteGranted; // 该请求是否收到了选票 true means candidate received vote
+    size_t term = 0; // 当前的最新term号， for candidate to update itself
+    bool voteGranted = false; // 该请求是否收到了选票 true means candidate received vote
 };
 
 

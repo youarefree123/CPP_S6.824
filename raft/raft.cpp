@@ -1,6 +1,7 @@
 #include <async_simple/coro/FutureAwaiter.h>
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <string>
 #include <ylt/coro_rpc/impl/coro_rpc_client.hpp>
 #include <ylt/easylog.hpp>
@@ -14,16 +15,243 @@
 // believes it is the leader.
 std::pair<int,bool> Raft::GetState() const {
     
-    size_t term;
+    int64_t term;
     bool is_leader; 
     //  TODO 
     return std::make_pair( term, is_leader );
 } 
 
 
-// 发送日志给各个flower
-void Raft::appendEntries( ) {
+
+
+bool Raft::sendAppendEntries( int id, AppendEntryArgs args, AppendEntryReply& reply ) {
+    coro_rpc_client client;
+    syncAwait(client.connect( "localhost", this->peers[id], milli_duration(DURATION_TIME) ) );
+    auto ok = syncAwait( client.call_for<&Raft::appendEntries>(milli_duration( DURATION_TIME ), args) ); 
+        
+    if( !ok  ) {
+        return false;
+    }
+    reply = std::move( ok.value() );
+    return true;
+}
+
+
+
+
+Lazy<void> Raft::appendTo( int id ) {
+    co_await lock.coLock();
+    if( state != Leader ) {
+        ELOG_DEBUG << me << " server 状态已经不是Leader了";
+        lock.unlock();
+        co_return;
+    }
+    auto args = AppendEntryArgs{};
+    args.term = currentTerm;
+    args.leaderId = me;
+    args.preLogIndex = nextIndex[id] - 1; // 前一个
+    args.preLogTerm = 0;
+    args.leaderCommit = commitIndex;
+
+    int64_t pre_index = nextIndex[id] - 1; // 上一条日志的index
+    pre_index = transfer( pre_index ); // 该索引的日志在logs中的日志
+    if( pre_index < 0 ) {
+        lock.unlock();
+        co_return;
+    }
+
+    args.preLogIndex = logs[pre_index].index;
+    args.preLogTerm = logs[pre_index].term;
+
+    // 复制日志
+    std::vector<Entry> entries( logs.begin()+pre_index+1, logs.end() );
+    args.entries = std::move( entries );
+
+    lock.unlock();
+
+    AppendEntryReply reply{};
+    auto ok = sendAppendEntries( id, args, reply );
+    if( !ok ) {
+        co_return;
+    }
+
+    co_await lock.coLock();
+
+    // 一些异常状况的处理
+    if( currentTerm != args.term || state != Leader || reply.term < currentTerm ) {
+        goto APD_RET;
+    }
+
+    // 如果收到了任期大于自身的消息，说明有了新Leader，自己需要转为follower
+    if( reply.term > currentTerm ) {
+        currentTerm = reply.term;
+        votedFor = -1;
+        // persist();  // FIXME
+        turnTo( Follower );
+        goto APD_RET;
+    }
+
+    // 如果id 节点 复制成功，修改 状态
+    if( reply.success ) {
+        nextIndex[id] = args.preLogIndex + args.entries.size() + 1;
+        matchIndex[id] = args.preLogIndex + args.entries.size();
+        toCommit();
+        goto APD_RET;
+    }
+
+    // 回退 
+    nextIndex[id] -= 1;
+
+    if( nextIndex[id] < 1 ) {
+        nextIndex[id] = 1;
+    }
+
+APD_RET:
+    lock.unlock();
+    co_return;
+
+}
+
+int64_t Raft::transfer( int64_t index ) {
+    auto begin = logs.begin()->index;
+        auto end = logs.end()->index;
+        if( index < begin || index > end ) {
+            return -1;
+        }
+        return index - begin;
+}
+
+// 复制日志
+Lazy<AppendEntryReply> Raft::appendEntries( AppendEntryArgs args ) {
+    AppendEntryReply reply{};
+    co_await lock.coLock();
+    
+    
+    // 过期日志，直接返回
+    if( args.term < currentTerm ) {
+        reply.term = currentTerm;
+        reply.success = false;
+        // goto RPC_APD;
+        lock.unlock();
+        // persist(); FIXME
+        co_return reply;
+    }
+
+    // 状态转为follower
+    if( args.term > currentTerm ) {
+        currentTerm = args.term;
+        votedFor = -1;
+        turnTo( Follower );
+    }
+
+    if( state != Follower ) {
+        turnTo( Follower );
+    }
+    
+    reply.success = true;
+    reply.term = currentTerm;
+    resetElectionTime();
+
+   
+
+
+    auto index = transfer( args.preLogIndex );
+
+    if ( args.preLogIndex < logs.begin()->index ) {
+        reply.success = false;
+        // goto RPC_APD;
+        lock.unlock();
+        // persist(); FIXME
+        co_return reply;
+    }
+
+    if ( args.preLogIndex > logs.back().index ) {
+        reply.success = false;
+        // goto RPC_APD;
+        lock.unlock();
+        // persist(); FIXME
+        co_return reply;
+    }
+
+    if( index < 0 ) {
+        // goto RPC_APD;
+        lock.unlock();
+        // persist(); FIXME
+        co_return reply;
+    }
+
+    // 不是一个任期，失败
+    if( logs[index].term != args.preLogTerm ) {
+        reply.success = false;
+        // goto RPC_APD;
+        lock.unlock();
+        // persist(); FIXME
+        co_return reply;
+    }
+
+    if( !args.entries.empty() ) {
+
+        auto isConflict = [&](){
+            int64_t base_index = args.preLogIndex + 1;
+            for( int i = 0; i < args.entries.size(); i++ ) {
+                 auto index = transfer( base_index+i );
+                 if( index < 0 ) {
+                    return true;
+                 }
+                 auto entry = logs[index];
+                 if( entry.term != args.entries[i].term ) {
+                    return true;
+                 }
+            }
+            return false;  
+        };
+
+        if( isConflict() ) {
+            logs = std::vector<Entry>( logs.begin(), logs.begin() + index+1 );
+            for( auto& it : args.entries ) {
+                logs.push_back( it );
+            }
+        }
+        else {
+            // 
+        }
+
+    }
+    else {
+        // 
+    }
+
+ // 提交
+    if( args.leaderCommit > commitIndex ) {
+        commitIndex = args.leaderCommit;
+        if( args.leaderCommit > logs.back().index ) {
+            commitIndex = logs.back().index;
+        }
+        // signal FIXME
+    }
+
+    lock.unlock();
+    // persist(); FIXME
+    co_return reply;
+}
+
+// 并行发送日志给各个flower
+void Raft::doAppendEntries( ) {
+    for( int i = 0; i < peers.size(); i++ ) {
+        if( i == me ) continue;
+
+        int wantSendIndex = nextIndex[i] - 1;
+        if( wantSendIndex < logs.begin()->index ) {
+            // 如果不需要复制日志，那就执行一次落盘
+            // doInstallSnapShot( i ).start( [](auto&&){} ); // FIXME
+        }
+        else {
+            // 否则，follower复制日志
+            appendTo( i ).start( [](auto&&){} );
+        }
+    }
     // FIXME
+    syncAwait( co_sleep( APD_WAIT_TIME ) );
 }
 
 
@@ -49,7 +277,7 @@ void Raft::turnTo( STATE server_state ) {
             ELOG_DEBUG << this->me << " server 在term "<< currentTerm<< "由状态"<< state << " 成为Leader"; 
             state = Leader;
             leaderInit(); // 做成为leader后的一系列初始化
-            appendEntries(); // 成为leader后， 需要立刻给所有server发送心跳包，宣誓主权
+            doAppendEntries(); // 成为leader后， 需要立刻给所有server发送心跳包，宣誓主权
             break;
         case Candidate:
             ELOG_DEBUG << this->me << " server 在term "<< currentTerm<< "由状态"<< state << "成为 Candidate";
@@ -91,7 +319,7 @@ void Raft::doElection() {
 
     ELOG_DEBUG<< me <<" server 开始选举";
 
-    size_t voted_count = 1; // 首先给自己投一票
+    int64_t voted_count = 1; // 首先给自己投一票
     Entry entry = logs.back(); // 最后一个log entry
 
     RequestVoteArgs args;
@@ -115,40 +343,6 @@ void Raft::doElection() {
             co_return; 
         }
         ELOG_DEBUG << me << " server 收到reply, votefgranted:term = "<<reply.voteGranted<<" : "<< reply.term;
-
-
-        // 这里及其下面的逻辑，需要保证离开doElection也能执行，不然在doElection中是获取不了锁的
-        // while( !lock.tryLock() ) {
-        //     ELOG_DEBUG<< me << " 没有拿到锁 ";
-        // }
-        // co_await lock.coLock(); // 这里需要加锁吗？
-        // ELOG_DEBUG<< me << " 拿到锁 ";
-        
-        // if( currentTerm != reply.term || state != Leader ) {
-        //     // 选举超时，重新选举，直接返回
-        //     goto VOTE_RET;
-        // }
-        // // term都没有其他server大，不是合格的候选者，身份转变为follower
-        // if( reply.term > currentTerm ) {
-        //     currentTerm = reply.term;
-        //     votedFor = -1;
-        //     // persist(); // FIXME
-        //     turnTo( Follower );
-        //     goto VOTE_RET;
-        // }
-
-        // if( reply.voteGranted ) {
-        //     voted_count++;
-
-        //     if( voted_count > peers.size() / 2 && state == Candidate ) {
-        //         ELOG_DEBUG<< me<<" server 成为leader";
-        //         turnTo( Leader );
-        //     }
-        // }
-
-// VOTE_RET:
-//         lock.unlock();
-//         co_return;
     };
 
     ELOG_DEBUG << me << " server 并行向所有节点发送选举请求";
@@ -224,7 +418,7 @@ Lazy<void> Raft::ticker() {
                   
                 if( heartBeatTimeOut() ) {
                     ELOG_DEBUG << this->me << " server 状态 Leader, 向所有follower发送日志";  
-                    appendEntries(); // 如果超过需要发送心跳包的时间，发送心跳包
+                    doAppendEntries(); // 如果超过需要发送心跳包的时间，发送心跳包
                     resetHeartBeatTime();
                 }
                 break;
@@ -259,7 +453,7 @@ Lazy<void> Raft::ticker() {
     }
 }
 
-
+void Raft::toCommit() {} // FIXME
 
 //
 // restore previously persisted state.
@@ -283,8 +477,16 @@ Lazy<void> Raft::ticker() {
 // 	// }
 // }
 
-
-
+// 用于判断候选者的日志是否比投票者新
+bool Raft::isUpToDate( int lastLogIndex, int lastLogTerm ) {
+    Entry entry = logs.back();
+    int index = entry.index;
+    int term = entry.term;
+    if( term == lastLogTerm ) {
+        return lastLogIndex >= index;
+    }
+    return lastLogTerm > term;
+}
 
 
 
@@ -293,7 +495,7 @@ Lazy<void> Raft::ticker() {
 Lazy<RequestVoteReply> Raft::RequestVote( RequestVoteArgs args ) {
 
     // for debug 先睡一段时间
-    co_await co_sleep( GAP_TIME*10 );
+    // co_await co_sleep( GAP_TIME*10 );
 
     RequestVoteReply reply{};
     co_await lock.coLock();
@@ -316,6 +518,15 @@ Lazy<RequestVoteReply> Raft::RequestVote( RequestVoteArgs args ) {
     // 正常逻辑（args.term大于等于当前节点，且未投票或者投过该候选者的票，则将票投给该候选者）
     if( votedFor == -1 || votedFor == args.candidateId ) {
         
+        // 增加安全性检查，如果投票者比候选者日志更 “新”， 拒绝投票
+        if( !isUpToDate(args.lastLogIndex, args.lastLogTerm) ) {
+            reply.voteGranted = false;
+            reply.term = currentTerm;
+            ELOG_DEBUG << me << " server 的日志比 " << args.candidateId <<  " 新 , 不投票 " ;
+            goto REQ_RET;
+        }
+
+
         votedFor = args.candidateId;
         reply.voteGranted = true;
         reply.term = currentTerm;
@@ -326,7 +537,7 @@ Lazy<RequestVoteReply> Raft::RequestVote( RequestVoteArgs args ) {
     }
 
     // 否则就是拒绝投票
-    ELOG_DEBUG << me << " server 拒绝投票给" << args.candidateId;
+    ELOG_DEBUG << me << " server 已经投票给" << votedFor<<" 拒绝投票给" << args.candidateId;
     reply.voteGranted = false;
     reply.term  = currentTerm;
 
@@ -356,7 +567,7 @@ bool Raft::sendRequestVote(int id, RequestVoteArgs args, RequestVoteReply& reply
 
 
 // 构造下标为me的Raft
-void Make( const std::vector<Raft_Ptr>& rafts, size_t raft_id, Persister *persister ) {
+void Make( const std::vector<Raft_Ptr>& rafts, int64_t raft_id, Persister *persister ) {
     
     // 每个server都有与其他server通信的client
     int nums = rafts.size();

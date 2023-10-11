@@ -33,8 +33,8 @@ enum STATE {
 };
 
 struct Entry {
-    size_t index; // 日志位置
-    size_t term; // 日志提交时的周期
+    int64_t index; // 日志位置
+    int64_t term; // 日志提交时的周期
     std::string cmd;
 };
 
@@ -42,10 +42,10 @@ struct Entry {
 // field names must start with capital letters!
 //
 struct RequestVoteArgs {
-    size_t term; // 候选人的term号
-    size_t candidateId; // 请求投票的候选人id
-    size_t lastLogIndex; // 候选人最后一条日志的位置索引
-    size_t lastLogTerm; // 候选人最后一条日志的term号
+    int64_t term; // 候选人的term号
+    int64_t candidateId; // 请求投票的候选人id
+    int64_t lastLogIndex; // 候选人最后一条日志的位置索引
+    int64_t lastLogTerm; // 候选人最后一条日志的term号
 };
 
 
@@ -54,10 +54,23 @@ struct RequestVoteArgs {
 // field names must start with capital letters!
 //
 struct RequestVoteReply {
-    size_t term = 0; // 当前的最新term号， for candidate to update itself
+    int64_t term = 0; // 当前的最新term号， for candidate to update itself
     bool voteGranted = false; // 该请求是否收到了选票 true means candidate received vote
 };
 
+struct AppendEntryArgs {
+    int64_t term; // Leader 的 任期
+    int64_t leaderId; // 当前任期leader号，用于客户端访问
+    int64_t preLogIndex; // 前一个日志的日志号
+    int64_t preLogTerm; // 前一个日志的任期号
+    std::vector<Entry> entries; // 当前日志体
+    int64_t leaderCommit; // leader已经提交的日志号
+};
+
+struct AppendEntryReply {
+    int64_t term;  // 自己当前任期号
+    bool success; // 如果follower包含前一个日志，返回true
+};
 
 
 
@@ -65,17 +78,18 @@ class Raft {
 
 public:
     
-    Raft( const size_t& _me ) : me( _me ) {
+    Raft( const int64_t& _me ) : me( _me ) {
         // 初始化时插入一条起始日志
-        logs.emplace_back( 0, -1, "" );
+        logs.emplace_back( 0, 0, "" );
     }
     ~Raft() = default;
     std::string test( std::string str ) { return str; }
     inline std::pair<int,bool> GetState() const; // 获取当前节点状态
     bool sendRequestVote(int id, RequestVoteArgs args, RequestVoteReply& reply); // rpc的封装，发送投票请求
-    Lazy<RequestVoteReply> RequestVote( RequestVoteArgs args ); // rpc: 提供请求投票服务
+    bool sendAppendEntries( int id, AppendEntryArgs args, AppendEntryReply& reply ); // rpc bug? 不能传引用
     Lazy<void> ticker(); // 超时触发下一轮选举
-    void appendEntries(); 
+    Lazy<RequestVoteReply> RequestVote( RequestVoteArgs args ); // rpc: 提供请求投票服务
+    Lazy<AppendEntryReply> appendEntries( AppendEntryArgs args ); // rpc: 复制日志服务 
     inline void resetElectionTime(); // 重制选举超时时间
     inline void resetHeartBeatTime(); // 心跳包超时时间
     inline bool heartBeatTimeOut() const { return Now() >= this->heartBeatTime; }
@@ -83,7 +97,13 @@ public:
     void leaderInit(); // 新leader需要做的一些初始化工作
     void turnTo( STATE state ); // 用于raft的状态切换
     void doElection(); // 选举
-
+    void doAppendEntries(); // 复制日志
+    Lazy<void> appendTo( int id ); // 并行发送日志给id
+    Lazy<void> doInstallSnapShot( int id ); // 日志持久化
+    bool isUpToDate( int lastLogIndex, int lastLogTerm );
+    
+    int64_t transfer( int64_t index ) ; // 求上一条日志索引，避免越界
+    void toCommit(); // 提交
 
 
 public:
@@ -94,22 +114,22 @@ public:
 
 public:
     Persister *persister ;         // Object to hold this peer's persisted state
-    size_t me;                         // this peer's index into peers[]
+    int64_t me;                         // this peer's index into peers[]
 	int32_t dead = 0;                  // set by Kill()
 
     /* 需要在RPC的response前更新的状态 */
     STATE state = Follower; // 默认初始状态是follower
     bool is_alive = true; // 表示raft是否存活
-    size_t heartBeatTime = 0; // 下一次发送心跳包的时间
-    size_t electionTime = 0; // raft 超过此时间就会开启选举逻辑
+    int64_t heartBeatTime = 0; // 下一次发送心跳包的时间
+    int64_t electionTime = 0; // raft 超过此时间就会开启选举逻辑
 
-    size_t currentTerm = 0;    // raft 能观察到的 最新term号, 
-    size_t votedFor = -1;    // 当前term，获得该节点票的id，默认为none， -1（无符号的最大值）
+    int64_t currentTerm = 0;    // raft 能观察到的 最新term号, 
+    int64_t votedFor = -1;    // 当前term，获得该节点票的id，默认为none， -1（无符号的最大值）
     std::vector<Entry> logs; // 日志
 
     /*    不需要持久化的状态：Volatile， 所有server都需要      */ 
-    size_t commitIndex = 0; // 已知提交的最高日志条目的索引
-    size_t lastApplied = 0; // 已知应用到状态机中的最高日志条目的索引, 如果小于commitIndex，则会在合适的时候应用日志
+    int64_t commitIndex = 0; // 已知提交的最高日志条目的索引
+    int64_t lastApplied = 0; // 已知应用到状态机中的最高日志条目的索引, 如果小于commitIndex，则会在合适的时候应用日志
 
     /* Volatile ： leader 特有的状态 */
     std::vector<int> nextIndex; // 需要发送给followers的下一条日志索引
@@ -128,4 +148,4 @@ public:
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
 // 初始化一个raft对象，同时开启定时任务ticker，用于超时后的选举
-void Make( const std::vector<Raft_Ptr>& servers, size_t me, Persister *persister );
+void Make( const std::vector<Raft_Ptr>& servers, int64_t me, Persister *persister );
